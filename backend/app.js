@@ -85,13 +85,12 @@ app.get('/api/csrf-token', (req, res) => {
   const crypto = require('crypto');
   const token = crypto.randomBytes(32).toString('hex');
   res.cookie('XSRF-TOKEN', token, {
-    httpOnly: false, // Accessible by frontend JS to copy into request header
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    httpOnly: false,
+    secure: true,
+    sameSite: 'none'
   });
   res.json({ csrfToken: token });
 });
-
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/customers', customerRoutes);
