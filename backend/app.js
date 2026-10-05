@@ -30,7 +30,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:', 'https:', 'http:'],
-      connectSrc: ["'self'", 'http://localhost:3000', 'http://localhost:5173', process.env.FRONTEND_URL || '']
+      connectSrc: ["'self'", 'http://localhost:3000', 'http://localhost:5173', 'https://daryls-glass-crm.netlify.app', process.env.FRONTEND_URL || '']
     }
   },
   crossOriginEmbedderPolicy: false
@@ -41,7 +41,8 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:3000',
   'http://localhost:5173',
-  'http://127.0.0.1:5173'
+  'http://127.0.0.1:5173',
+  'https://daryls-glass-crm.netlify.app'
 ].filter(Boolean);
 
 app.use(cors({
@@ -110,3 +111,4 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 module.exports = app;
+
