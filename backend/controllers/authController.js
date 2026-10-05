@@ -13,12 +13,12 @@ const generateToken = (user) => {
   );
 };
 
-// Helper to set cookie
+// Helper to set cookie for cross-domain Netlify -> Railway deployment
 const setAuthCookie = (res, token) => {
   res.cookie('token', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'none',
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   });
 };
@@ -41,7 +41,8 @@ exports.register = async (req, res) => {
       email: email.toLowerCase(),
       password: hashedPassword,
       phoneNumber,
-      role: role || 'staff'
+      role: role || 'staff',
+      isActive: true
     });
 
     await user.save();
@@ -71,14 +72,27 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user || !user.isActive) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required', message: 'Email and password are required' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      console.warn(`[AUTH] Login failed: User "${normalizedEmail}" not found in database.`);
+      return res.status(401).json({ error: 'Invalid email or password', message: 'Invalid credentials' });
+    }
+
+    if (user.isActive === false) {
+      console.warn(`[AUTH] Login failed: User "${normalizedEmail}" is deactivated.`);
+      return res.status(401).json({ error: 'Account is deactivated. Contact administrator.', message: 'Account is deactivated' });
     }
 
     const isPasswordValid = await bcryptjs.compare(password, user.password);
     if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      console.warn(`[AUTH] Login failed: Password mismatch for user "${normalizedEmail}".`);
+      return res.status(401).json({ error: 'Invalid email or password', message: 'Invalid credentials' });
     }
 
     const token = generateToken(user);
@@ -99,12 +113,16 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     logger.error('Login error', { error: error.message });
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: 'Login failed', message: 'Login failed' });
   }
 };
 
 exports.logout = async (req, res) => {
-  res.clearCookie('token');
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none'
+  });
   res.json({ message: 'Logged out successfully' });
 };
 
@@ -117,7 +135,7 @@ exports.refreshToken = async (req, res) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_for_development');
     const user = await User.findById(decoded.id);
-    if (!user || !user.isActive) {
+    if (!user || user.isActive === false) {
       return res.status(401).json({ error: 'Invalid user token' });
     }
 
@@ -148,13 +166,12 @@ exports.forgotPassword = async (req, res) => {
     const user = await User.findOne({ email: email.toLowerCase() });
 
     if (!user) {
-      // Return 200 to prevent user enumeration
       return res.json({ message: 'If that email exists, a password reset link has been dispatched.' });
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.resetPasswordExpire = Date.now() + 60 * 60 * 1000; // 1 hour
+    user.resetPasswordExpire = Date.now() + 60 * 60 * 1000;
 
     await user.save();
     logger.info(`Password reset requested for: ${user.email}`);
