@@ -4,6 +4,14 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 
+// Constant-time comparison of two strings (hashed first so lengths always match)
+const safeCompare = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+};
+
 // Helper to sign JWT
 const generateToken = (user) => {
   return jwt.sign(
@@ -71,14 +79,51 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user || !user.isActive) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required', message: 'Email and password are required' });
     }
 
-    const isPasswordValid = await bcryptjs.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    let user = null;
+
+    if (adminEmail && adminPassword) {
+      // Credentials live only in .env: the submitted input must match them
+      const emailMatches = safeCompare(String(email).trim().toLowerCase(), adminEmail.trim().toLowerCase());
+      const passwordMatches = safeCompare(String(password), adminPassword);
+
+      if (!emailMatches || !passwordMatches) {
+        logger.warn(`Failed login attempt for: ${email}`);
+        return res.status(401).json({ error: 'Invalid email or password', message: 'Invalid credentials' });
+      }
+
+      // Make sure the admin account exists in the database so records can be attributed to it
+      user = await User.findOne({ email: adminEmail.toLowerCase() });
+      if (!user) {
+        const hashedPassword = await bcryptjs.hash(adminPassword, 10);
+        user = await User.create({
+          firstName: 'Admin',
+          lastName: 'User',
+          email: adminEmail.toLowerCase(),
+          password: hashedPassword,
+          role: 'admin',
+          isActive: true
+        });
+      } else if (!user.isActive) {
+        user.isActive = true;
+        await user.save();
+      }
+    } else {
+      // No ADMIN_EMAIL/ADMIN_PASSWORD configured: fall back to database users
+      user = await User.findOne({ email: email.toLowerCase() });
+      if (!user || !user.isActive) {
+        return res.status(401).json({ error: 'Invalid email or password', message: 'Invalid credentials' });
+      }
+
+      const isPasswordValid = await bcryptjs.compare(password, user.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({ error: 'Invalid email or password', message: 'Invalid credentials' });
+      }
     }
 
     const token = generateToken(user);
@@ -99,7 +144,7 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     logger.error('Login error', { error: error.message });
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: 'Login failed', message: 'Login failed' });
   }
 };
 

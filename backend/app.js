@@ -12,7 +12,6 @@ const authRoutes = require('./routes/auth');
 const customerRoutes = require('./routes/customers');
 const vehicleRoutes = require('./routes/vehicles');
 const jobRoutes = require('./routes/jobs');
-const quoteRoutes = require('./routes/quotes');
 const invoiceRoutes = require('./routes/invoices');
 const communicationRoutes = require('./routes/communications');
 const noteRoutes = require('./routes/notes');
@@ -38,24 +37,36 @@ app.use(helmet({
 
 // CORS Hardening
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'http://localhost:3000',
   'http://localhost:5173',
-  'http://127.0.0.1:5173'
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  process.env.FRONTEND_URL
 ].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Permissive in local dev, restrictable in prod
+    if (!origin) return callback(null, true);
+    if (
+      allowedOrigins.includes(origin) ||
+      /\.netlify\.app$/.test(origin) ||
+      /\.railway\.app$/.test(origin) ||
+      process.env.NODE_ENV !== 'production'
+    ) {
+      return callback(null, true);
     }
+    if (process.env.FRONTEND_URL && origin.replace(/\/+$/, '') === process.env.FRONTEND_URL.replace(/\/+$/, '')) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
-}));
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 app.use(cookieParser());
 
@@ -96,7 +107,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/jobs', jobRoutes);
-app.use('/api/quotes', quoteRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/communications', communicationRoutes);
 app.use('/api/notes', noteRoutes);

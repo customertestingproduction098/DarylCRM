@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+// Ensure baseURL doesn't have a trailing slash
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  baseURL: API_BASE_URL,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
@@ -13,8 +16,7 @@ let csrfToken = null;
 // Fetch CSRF token on initialization
 export const initCSRFToken = async () => {
   try {
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-    const response = await axios.get(`${baseURL}/csrf-token`, { withCredentials: true });
+    const response = await axios.get(`${API_BASE_URL}/csrf-token`, { withCredentials: true });
     csrfToken = response.data?.csrfToken;
   } catch {
     // Graceful fallback for local development without backend
@@ -39,8 +41,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // If unauthorized, token may have expired
+    // Only warn about session expiration on non-auth requests
+    if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
       console.warn('Authentication expired or unauthorized access.');
     }
     return Promise.reject(error);

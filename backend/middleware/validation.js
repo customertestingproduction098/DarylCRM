@@ -3,7 +3,8 @@ const { body, param, query, validationResult } = require('express-validator');
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    const firstMsg = errors.array()[0]?.msg || 'Validation failed';
+    return res.status(400).json({ errors: errors.array(), message: firstMsg, error: firstMsg });
   }
   next();
 };
@@ -20,7 +21,8 @@ const validateCustomer = [
     .isLength({ min: 1, max: 50 }).withMessage('Last name must be 1-50 chars'),
   body('phoneNumber')
     .trim()
-    .matches(/^[+]?[(]?[0-9]{3}[)]?[-\s.]?[0-9]{3}[-\s.]?[0-9]{4,6}$/)
+    .isLength({ max: 25 }).withMessage('Phone number is too long (max 25 characters)')
+    .matches(/^[+]?[\d\s\-().]{7,25}$/)
     .withMessage('Invalid phone number format'),
   body('email')
     .optional({ checkFalsy: true })
@@ -40,23 +42,11 @@ const validateJob = [
     .isIn(['vehicle_repair', 'vehicle_replacement', 'residential_repair', 'residential_replacement'])
     .withMessage('Invalid job type'),
   body('appointmentDateTime')
-    .notEmpty().withMessage('Appointment date/time required')
+    .optional({ checkFalsy: true })
     .isISO8601().withMessage('Invalid date format'),
-  handleValidationErrors
-];
-
-// Quote validation
-const validateQuote = [
-  body('customerId')
-    .notEmpty().isMongoId().withMessage('Invalid customer ID'),
-  body('lineItems')
-    .isArray({ min: 1 }).withMessage('At least one line item required'),
-  body('lineItems.*.description')
-    .trim().notEmpty().withMessage('Item description required'),
-  body('lineItems.*.quantity')
-    .isInt({ min: 1 }).withMessage('Quantity must be positive integer'),
-  body('lineItems.*.unitPrice')
-    .isFloat({ min: 0 }).withMessage('Price must be positive number'),
+  body('quoteAmount')
+    .optional({ checkFalsy: true })
+    .isFloat({ min: 0 }).withMessage('Quote amount must be a positive number'),
   handleValidationErrors
 ];
 
@@ -109,7 +99,6 @@ const validateNote = [
 module.exports = {
   validateCustomer,
   validateJob,
-  validateQuote,
   validateInvoice,
   validatePayment,
   validateLogin,

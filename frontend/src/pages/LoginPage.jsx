@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Shield, Lock, Mail } from 'lucide-react';
 import Button from '../components/Common/Button';
 import Input from '../components/Common/Input';
-import { loginUser, offlineLogin } from '../store/slices/authSlice';
+import { loginUser } from '../store/slices/authSlice';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -19,12 +19,8 @@ export default function LoginPage() {
     try {
       await dispatch(loginUser({ email, password })).unwrap();
       navigate('/customers');
-    } catch (err) {
-      if (err?.offline) {
-        // Backend unreachable: open the CRM in local mode
-        dispatch(offlineLogin());
-        navigate('/customers');
-      }
+    } catch {
+      // Error is surfaced from authSlice (invalid credentials or server unreachable)
     }
   };
 

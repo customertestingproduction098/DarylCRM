@@ -9,24 +9,33 @@ export const loginUser = createAsyncThunk(
       localStorage.setItem('token', response.data.token);
       return response.data;
     } catch (error) {
+      if (!error.response) {
+        return rejectWithValue({
+          message: 'Cannot reach the server. Make sure the backend is running (cd backend && npm run dev).'
+        });
+      }
       return rejectWithValue({
-        message: error.response?.data?.error || 'Login failed',
-        offline: !error.response
+        message: error.response?.data?.error || 'Login failed'
       });
     }
   }
 );
 
 const storedToken = localStorage.getItem('token') || null;
+// Older builds stored a fake offline session token - discard it
+const validToken = storedToken && storedToken !== 'local-session' ? storedToken : null;
+if (storedToken === 'local-session') {
+  localStorage.removeItem('token');
+}
 
 const authSlice = createSlice({
   name: 'auth',
   initialState: {
     user: null,
-    token: storedToken,
+    token: validToken,
     isLoading: false,
     error: null,
-    isAuthenticated: Boolean(storedToken)
+    isAuthenticated: Boolean(validToken)
   },
   reducers: {
     logout: (state) => {
@@ -34,14 +43,6 @@ const authSlice = createSlice({
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;
-      state.error = null;
-    },
-    // Allows opening the CRM when the backend is unreachable (local/demo use)
-    offlineLogin: (state) => {
-      localStorage.setItem('token', 'local-session');
-      state.token = 'local-session';
-      state.user = { firstName: 'Staff', lastName: '' };
-      state.isAuthenticated = true;
       state.error = null;
     }
   },
@@ -64,5 +65,5 @@ const authSlice = createSlice({
   }
 });
 
-export const { logout, offlineLogin } = authSlice.actions;
+export const { logout } = authSlice.actions;
 export default authSlice.reducer;

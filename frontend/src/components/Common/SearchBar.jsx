@@ -45,6 +45,7 @@ export default function SearchBar({ onSearch, placeholder }) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            maxLength={searchTab === 'phone' ? 25 : undefined}
             placeholder={
               placeholder ||
               (searchTab === 'phone'

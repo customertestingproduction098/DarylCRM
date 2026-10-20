@@ -84,3 +84,37 @@ exports.getCustomerCommunications = async (req, res) => {
     fail(res, error, 'Failed to get communications');
   }
 };
+
+exports.updateCommunication = async (req, res) => {
+  try {
+    const { communicationType, direction, message, subject } = req.body;
+    const updates = { updatedAt: new Date() };
+    if (communicationType) updates.communicationType = communicationType;
+    if (direction) updates.direction = direction;
+    if (message) updates.message = message;
+    if (subject !== undefined) updates.subject = subject;
+
+    const communication = await Communication.findByIdAndUpdate(req.params.id, updates, {
+      new: true,
+      runValidators: true
+    });
+    if (!communication) {
+      return res.status(404).json({ error: 'Communication not found' });
+    }
+    res.json(communication);
+  } catch (error) {
+    fail(res, error, 'Failed to update communication');
+  }
+};
+
+exports.deleteCommunication = async (req, res) => {
+  try {
+    const communication = await Communication.findByIdAndDelete(req.params.id);
+    if (!communication) {
+      return res.status(404).json({ error: 'Communication not found' });
+    }
+    res.json({ message: 'Communication deleted' });
+  } catch (error) {
+    fail(res, error, 'Failed to delete communication');
+  }
+};

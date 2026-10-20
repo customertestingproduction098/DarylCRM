@@ -1,6 +1,7 @@
 const Job = require('../models/Job');
 const Customer = require('../models/Customer');
 const Vehicle = require('../models/Vehicle');
+const Quote = require('../models/Quote');
 const { fail } = require('../utils/errorHandler');
 
 exports.createJob = async (req, res) => {
@@ -16,11 +17,21 @@ exports.createJob = async (req, res) => {
       supplierOrderedFrom,
       supplierOrderId,
       specifications,
-      vehicle
+      vehicle,
+      quoteAmount
     } = req.body;
 
-    if (!customerId || !jobType || !appointmentDateTime) {
-      return res.status(400).json({ error: 'Customer, job type, and appointment date/time required' });
+    if (!customerId || !jobType) {
+      return res.status(400).json({ error: 'Customer and job type required' });
+    }
+
+    // Appointment date/time is optional - empty form values must not reach the Date caster
+    const appointment = appointmentDateTime ? appointmentDateTime : undefined;
+
+    // Quote amount lives on the job (quotes section removed) - blank means none
+    let amount = quoteAmount === '' || quoteAmount == null ? null : Number(quoteAmount);
+    if (amount !== null && (Number.isNaN(amount) || amount < 0)) {
+      return res.status(400).json({ error: 'Quote amount must be a positive number' });
     }
 
     if (jobType.startsWith('residential') && !location) {
@@ -48,13 +59,14 @@ exports.createJob = async (req, res) => {
       customerId,
       vehicleId: resolvedVehicleId,
       jobType,
-      appointmentDateTime,
+      appointmentDateTime: appointment,
       location,
       poNumber,
       supplierName,
       supplierOrderedFrom,
       supplierOrderId,
       specifications,
+      quoteAmount: amount,
       jobStatus: 'scheduled'
     });
 
@@ -68,12 +80,32 @@ exports.createJob = async (req, res) => {
   }
 };
 
+// The quotes section was removed - legacy quote amounts are moved onto their
+// jobs once per server run (best effort, list works with or without it)
+let quoteAmountsBackfilled = false;
+
 exports.getJobs = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 15;
     const skip = (page - 1) * limit;
     const { status, search, from, to, sort } = req.query;
+
+    if (page === 1 && !quoteAmountsBackfilled) {
+      quoteAmountsBackfilled = true;
+      try {
+        const linked = await Quote.find({ jobId: { $ne: null }, totalAmount: { $ne: null } })
+          .select('jobId totalAmount');
+        for (const q of linked) {
+          await Job.updateOne(
+            { _id: q.jobId, quoteAmount: null },
+            { $set: { quoteAmount: q.totalAmount } }
+          );
+        }
+      } catch (err) {
+        // backfill is best effort
+      }
+    }
 
     const query = {};
     if (status) query.jobStatus = status;
@@ -114,7 +146,7 @@ exports.getJobs = async (req, res) => {
 exports.getJobById = async (req, res) => {
   try {
     const job = await Job.findById(req.params.id)
-      .populate('customerId vehicleId quoteId invoiceId');
+      .populate('customerId vehicleId invoiceId');
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
@@ -126,15 +158,65 @@ exports.getJobById = async (req, res) => {
 
 exports.updateJob = async (req, res) => {
   try {
+    const { vehicle, ...rest } = req.body;
+
+    // Cleared appointment in the form means "no appointment" (optional field)
+    if (rest.appointmentDateTime === '') {
+      rest.appointmentDateTime = null;
+    }
+    // Quote amount: blank clears it (the quotes section was removed)
+    if ('quoteAmount' in rest) {
+      if (rest.quoteAmount === '' || rest.quoteAmount === null) {
+        rest.quoteAmount = null;
+      } else {
+        const amount = Number(rest.quoteAmount);
+        if (Number.isNaN(amount) || amount < 0) {
+          return res.status(400).json({ error: 'Quote amount must be a positive number' });
+        }
+        rest.quoteAmount = amount;
+      }
+    }
+
     const job = await Job.findByIdAndUpdate(
       req.params.id,
-      { ...req.body, updatedAt: new Date() },
+      { ...rest, updatedAt: new Date() },
       { new: true, runValidators: true }
     );
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    res.json(job);
+
+    // Vehicle details live on the linked vehicle record - update provided fields only
+    if (vehicle && job.vehicleId) {
+      const vehicleUpdates = {};
+      if (vehicle.year) vehicleUpdates.year = Number(vehicle.year);
+      if (vehicle.make) vehicleUpdates.make = vehicle.make;
+      if (vehicle.model !== undefined) vehicleUpdates.model = vehicle.model;
+      if (vehicle.glassCode !== undefined) vehicleUpdates.glassCode = vehicle.glassCode;
+      if (vehicle.insuranceNumber !== undefined) vehicleUpdates.insuranceNumber = vehicle.insuranceNumber;
+
+      if (Object.keys(vehicleUpdates).length > 0) {
+        await Vehicle.findByIdAndUpdate(job.vehicleId, {
+          ...vehicleUpdates,
+          updatedAt: new Date()
+        }, { new: true, runValidators: true });
+      }
+    } else if (vehicle && vehicle.year && vehicle.make && job.customerId) {
+      // Job was created without vehicle intake - create and link the vehicle now
+      const doc = await Vehicle.create({
+        customerId: job.customerId,
+        year: Number(vehicle.year),
+        make: vehicle.make,
+        model: vehicle.model,
+        glassCode: vehicle.glassCode,
+        insuranceNumber: vehicle.insuranceNumber
+      });
+      job.vehicleId = doc._id;
+      await job.save();
+    }
+
+    const populated = await Job.findById(job._id).populate('customerId vehicleId invoiceId');
+    res.json(populated);
   } catch (error) {
     fail(res, error, 'Failed to update job');
   }

@@ -25,6 +25,30 @@ export const createCommunication = createAsyncThunk(
   }
 );
 
+export const updateCommunication = createAsyncThunk(
+  'communications/updateCommunication',
+  async ({ id, changes }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/communications/${id}`, changes);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
+export const deleteCommunication = createAsyncThunk(
+  'communications/deleteCommunication',
+  async (id, { rejectWithValue }) => {
+    try {
+      await api.delete(`/communications/${id}`);
+      return { id };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
 const communicationSlice = createSlice({
   name: 'communications',
   initialState: {
@@ -32,11 +56,7 @@ const communicationSlice = createSlice({
     isLoading: false,
     error: null
   },
-  reducers: {
-    addCommunicationLocal: (state, action) => {
-      state.items.unshift(action.payload);
-    }
-  },
+  reducers: {},
   extraReducers: (builder) => {
     builder
       .addCase(fetchCommunications.pending, (state) => {
@@ -45,8 +65,10 @@ const communicationSlice = createSlice({
       })
       .addCase(fetchCommunications.fulfilled, (state, action) => {
         state.isLoading = false;
-        if (action.payload && action.payload.length > 0) {
+        if (Array.isArray(action.payload)) {
           state.items = action.payload;
+        } else if (Array.isArray(action.payload?.data)) {
+          state.items = action.payload.data;
         }
       })
       .addCase(fetchCommunications.rejected, (state, action) => {
@@ -55,9 +77,15 @@ const communicationSlice = createSlice({
       })
       .addCase(createCommunication.fulfilled, (state, action) => {
         state.items.unshift(action.payload);
+      })
+      .addCase(updateCommunication.fulfilled, (state, action) => {
+        const index = state.items.findIndex((c) => c._id === action.payload._id);
+        if (index !== -1) state.items[index] = action.payload;
+      })
+      .addCase(deleteCommunication.fulfilled, (state, action) => {
+        state.items = state.items.filter((c) => c._id !== action.payload.id);
       });
   }
 });
 
-export const { addCommunicationLocal } = communicationSlice.actions;
 export default communicationSlice.reducer;

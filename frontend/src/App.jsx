@@ -7,7 +7,6 @@ import CustomersPage from './pages/CustomersPage';
 import CustomerProfilePage from './pages/CustomerProfilePage';
 import JobsPage from './pages/JobsPage';
 import JobDetailsPage from './pages/JobDetailsPage';
-import QuotesPage from './pages/QuotesPage';
 import InvoicesPage from './pages/InvoicesPage';
 
 export default function App() {
@@ -32,7 +31,6 @@ export default function App() {
                   <Route path="/customers/:customerId" element={<CustomerProfilePage />} />
                   <Route path="/jobs" element={<JobsPage />} />
                   <Route path="/jobs/:jobId" element={<JobDetailsPage />} />
-                  <Route path="/quotes" element={<QuotesPage />} />
                   <Route path="/invoices" element={<InvoicesPage />} />
                   <Route path="*" element={<Navigate to="/customers" replace />} />
                 </Routes>

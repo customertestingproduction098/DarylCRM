@@ -1,19 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { Wrench, Video, FileText, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Wrench, Video, FileText, Upload, CheckCircle2, AlertCircle, Pencil } from 'lucide-react';
 import StatusBadge from '../components/Common/StatusBadge';
 import Loading from '../components/Common/Loading';
+import Button from '../components/Common/Button';
+import Modal from '../components/Common/Modal';
+import Input from '../components/Common/Input';
 import mediaUrl from '../utils/mediaUrl';
 import {
   fetchJobById,
+  updateJob,
   updateJobStatus,
-  updateJobStatusLocal,
-  uploadJobMedia,
-  setJobMediaLocal
+  uploadJobMedia
 } from '../store/slices/jobSlice';
 
 const fmt = (value) => (value ? String(value).replace('T', ' ').slice(0, 16) : '—');
+const pad = (n) => String(n).padStart(2, '0');
 
 function VideoSlot({ label, accent, video, onFile, uploading, error }) {
   const inputRef = useRef(null);
@@ -86,9 +89,15 @@ export default function JobDetailsPage() {
   const [activeTab, setActiveTab] = useState('specs');
   const [uploading, setUploading] = useState(null);
   const [uploadError, setUploadError] = useState('');
+  const [statusError, setStatusError] = useState('');
+  const [statusSaving, setStatusSaving] = useState(false);
+
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState(null);
+  const [editError, setEditError] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const { items: allJobs, selectedJob, isLoading } = useSelector((state) => state.jobs);
-  const { items: quotes } = useSelector((state) => state.quotes);
   const { items: invoices } = useSelector((state) => state.invoices);
 
   useEffect(() => {
@@ -102,10 +111,14 @@ export default function JobDetailsPage() {
 
   const handleStatusChange = async (newStatus) => {
     if (!job?._id) return;
+    setStatusError('');
+    setStatusSaving(true);
     try {
       await dispatch(updateJobStatus({ id: job._id, status: newStatus })).unwrap();
-    } catch {
-      dispatch(updateJobStatusLocal({ id: job._id, status: newStatus }));
+    } catch (err) {
+      setStatusError(typeof err === 'string' ? err : 'Could not update the status. Is the server running?');
+    } finally {
+      setStatusSaving(false);
     }
   };
 
@@ -116,14 +129,87 @@ export default function JobDetailsPage() {
     try {
       await dispatch(uploadJobMedia({ id: job._id, file, slot })).unwrap();
     } catch (err) {
-      if (err?.offline) {
-        // Backend unreachable: keep the selected video for this session
-        dispatch(setJobMediaLocal({ id: job._id, slot, url: URL.createObjectURL(file) }));
-      } else {
-        setUploadError(err?.message || 'Upload failed');
-      }
+      setUploadError(typeof err === 'string' ? err : 'Upload failed. Is the server running?');
     } finally {
       setUploading(null);
+    }
+  };
+
+  const openEditJob = () => {
+    if (!job) return;
+    const dt = job.appointmentDateTime ? new Date(job.appointmentDateTime) : null;
+    const validDate = dt && !isNaN(dt.getTime());
+    const vehicle = job.vehicleId && typeof job.vehicleId === 'object' ? job.vehicleId : null;
+
+    setEditForm({
+      jobKind: (job.jobType || '').startsWith('residential') ? 'residential' : 'vehicle',
+      service: (job.jobType || '').includes('replacement') ? 'replacement' : 'repair',
+      date: validDate ? `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}` : '',
+      time: validDate ? `${pad(dt.getHours())}:${pad(dt.getMinutes())}` : '09:00',
+      year: vehicle?.year || '',
+      make: vehicle?.make || '',
+      model: vehicle?.model || '',
+      glassCode: vehicle?.glassCode || '',
+      insuranceNumber: vehicle?.insuranceNumber || '',
+      supplierName: job.supplierName || '',
+      supplierOrderedFrom: job.supplierOrderedFrom || '',
+      address: job.location || '',
+      jobNotes: job.specifications?.workDetails || '',
+      quoteAmount: job.quoteAmount == null ? '' : String(job.quoteAmount)
+    });
+    setEditError('');
+    setIsEditOpen(true);
+  };
+
+  const setEdit = (field) => (e) => setEditForm({ ...editForm, [field]: e.target.value });
+
+  const handleEditSave = async () => {
+    if (!job?._id || !editForm) return;
+
+    const isVehicle = editForm.jobKind === 'vehicle';
+    if (!isVehicle && !editForm.address.trim()) {
+      setEditError('Job location (address) is required for house jobs.');
+      return;
+    }
+    if (isVehicle && (!String(editForm.year).trim() || !editForm.make.trim())) {
+      setEditError('Vehicle year and make are required.');
+      return;
+    }
+
+    setEditError('');
+    setIsSavingEdit(true);
+
+    const payload = {
+      jobType: `${editForm.jobKind}_${editForm.service}`,
+      appointmentDateTime: editForm.date && editForm.time ? `${editForm.date}T${editForm.time}` : '',
+      quoteAmount: editForm.quoteAmount === '' ? '' : Number(editForm.quoteAmount),
+      specifications: {
+        repairType: editForm.service === 'replacement' ? 'Replacement' : 'Repair',
+        workDetails: editForm.jobNotes
+      },
+      ...(isVehicle
+        ? {
+            supplierName: editForm.supplierName,
+            supplierOrderedFrom: editForm.supplierOrderedFrom,
+            vehicle: {
+              year: Number(editForm.year),
+              make: editForm.make,
+              model: editForm.model,
+              glassCode: editForm.glassCode,
+              insuranceNumber: editForm.insuranceNumber
+            }
+          }
+        : { location: editForm.address })
+    };
+
+    try {
+      await dispatch(updateJob({ id: job._id, changes: payload })).unwrap();
+      setIsEditOpen(false);
+      dispatch(fetchJobById(job._id));
+    } catch (err) {
+      setEditError(typeof err === 'string' ? err : 'Could not save the changes. Is the server running?');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -154,13 +240,12 @@ export default function JobDetailsPage() {
   const insuranceNumber = vehicle?.insuranceNumber || job.insuranceNumber || '—';
 
   const customerId = job.customerId?._id || job.customerId;
-  const relatedQuotes = quotes.filter((q) => (q.customerId?._id || q.customerId) === customerId);
   const relatedInvoices = invoices.filter((i) => (i.customerId?._id || i.customerId) === customerId);
 
   const tabs = [
     { id: 'specs', label: 'Job Details', icon: Wrench },
     { id: 'media', label: 'Before / After Video', icon: Video },
-    { id: 'financials', label: 'Quotes & Invoices', icon: FileText }
+    { id: 'financials', label: 'Financials', icon: FileText }
   ];
 
   return (
@@ -182,18 +267,29 @@ export default function JobDetailsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <label className="text-xs font-semibold text-slate-600">Status</label>
-          <select
-            value={jobStatus}
-            onChange={(e) => handleStatusChange(e.target.value)}
-            className="text-xs font-semibold rounded-lg border border-slate-300 px-3 py-1.5 bg-slate-50 text-slate-800"
-          >
-            <option value="scheduled">Scheduled</option>
-            <option value="in_progress">In Progress</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+        <div className="flex flex-col items-end gap-1.5">
+          <Button variant="outline" size="sm" icon={Pencil} onClick={openEditJob}>
+            Edit Job
+          </Button>
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-semibold text-slate-600">Status</label>
+            <select
+              value={jobStatus}
+              onChange={(e) => handleStatusChange(e.target.value)}
+              disabled={statusSaving}
+              className="text-xs font-semibold rounded-lg border border-slate-300 px-3 py-1.5 bg-slate-50 text-slate-800 cursor-pointer disabled:opacity-60"
+            >
+              <option value="scheduled">Scheduled</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          {statusError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+              {statusError}
+            </p>
+          )}
         </div>
       </div>
 
@@ -263,8 +359,20 @@ export default function JobDetailsPage() {
 
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Job Notes</h3>
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700">
-              {job.specifications?.workDetails || job.notes || '—'}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 space-y-2">
+              <p>{job.specifications?.workDetails || '—'}</p>
+              {(job.notes || []).length > 0 && (
+                <ul className="divide-y divide-slate-200 pt-2 space-y-2">
+                  {job.notes.map((n, i) => (
+                    <li key={n._id || i} className="pt-2">
+                      <p>{n.content}</p>
+                      <span className="text-[10px] text-slate-400">
+                        {n.createdAt ? String(n.createdAt).split('T')[0] : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
@@ -302,21 +410,18 @@ export default function JobDetailsPage() {
 
       {activeTab === 'financials' && (
         <div className="bg-white p-6 rounded-xl border border-slate-200 space-y-4">
-          <h3 className="text-sm font-bold text-slate-900">Quotes</h3>
-          {relatedQuotes.length === 0 ? (
-            <p className="text-xs text-slate-500">No quotes for this customer yet.</p>
-          ) : (
-            <ul className="divide-y divide-slate-100 text-xs">
-              {relatedQuotes.map((q) => (
-                <li key={q._id} className="py-2.5 flex items-center justify-between">
-                  <span className="font-semibold text-slate-800">{q.quoteId || q._id}</span>
-                  <span className="text-slate-500">{String(q.quoteDate || q.date || '').split('T')[0]}</span>
-                  <span className="font-bold text-slate-900">${Number(q.totalAmount || q.amount || 0).toFixed(2)}</span>
-                  <StatusBadge status={q.status} />
-                </li>
-              ))}
-            </ul>
-          )}
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Quote Amount</h3>
+            {job.quoteAmount == null ? (
+              <p className="text-xs text-slate-500">
+                No quote amount set. Click “Edit Job” to add one.
+              </p>
+            ) : (
+              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                ${Number(job.quoteAmount).toFixed(2)}
+              </p>
+            )}
+          </div>
 
           <div className="pt-4 border-t border-slate-100">
             <h3 className="text-sm font-bold text-slate-900">Invoices</h3>
@@ -341,6 +446,140 @@ export default function JobDetailsPage() {
           </p>
         </div>
       )}
+
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        title={`Edit ${job.jobId || 'Job'}`}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={isSavingEdit}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleEditSave} isLoading={isSavingEdit}>
+              Save Changes
+            </Button>
+          </>
+        }
+      >
+        {editForm && (
+          <div className="space-y-4">
+            {editError && (
+              <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg">
+                {editError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
+                  Job For
+                </label>
+                <select
+                  value={editForm.jobKind}
+                  onChange={setEdit('jobKind')}
+                  className="w-full text-sm rounded-lg border border-slate-300 p-2 text-slate-800 bg-white"
+                >
+                  <option value="vehicle">Vehicle (windshield / auto glass)</option>
+                  <option value="residential">House / Residential glass</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
+                  Work Needed
+                </label>
+                <select
+                  value={editForm.service}
+                  onChange={setEdit('service')}
+                  className="w-full text-sm rounded-lg border border-slate-300 p-2 text-slate-800 bg-white"
+                >
+                  <option value="replacement">Replacement</option>
+                  <option value="repair">Repair</option>
+                </select>
+              </div>
+            </div>
+
+            {editForm.jobKind === 'vehicle' ? (
+              <div className="border border-slate-200 rounded-xl p-3 space-y-3 bg-slate-50/40">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Vehicle Details</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <Input label="Year" value={editForm.year} onChange={setEdit('year')} placeholder="2020" required />
+                  <Input label="Make" value={editForm.make} onChange={setEdit('make')} placeholder="Toyota" required />
+                  <Input label="Model" value={editForm.model} onChange={setEdit('model')} placeholder="RAV4" />
+                </div>
+                <Input
+                  label="Windshield / Glass Code"
+                  value={editForm.glassCode}
+                  onChange={setEdit('glassCode')}
+                  placeholder="FW04210 GTY"
+                />
+                <Input
+                  label="Insurance / Auto Number"
+                  value={editForm.insuranceNumber}
+                  onChange={setEdit('insuranceNumber')}
+                  placeholder="Policy or claim number"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    label="Supplier Name"
+                    value={editForm.supplierName}
+                    onChange={setEdit('supplierName')}
+                    placeholder="PGW Auto Glass"
+                  />
+                  <Input
+                    label="Ordered From"
+                    value={editForm.supplierOrderedFrom}
+                    onChange={setEdit('supplierOrderedFrom')}
+                    placeholder="Website / phone / local"
+                  />
+                </div>
+              </div>
+            ) : (
+              <Input
+                label="Address / Job Location"
+                value={editForm.address}
+                onChange={setEdit('address')}
+                placeholder="123 Main St, Cityville"
+                required
+              />
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Appointment Date (optional)"
+                type="date"
+                value={editForm.date}
+                onChange={setEdit('date')}
+              />
+              <Input label="Time" type="time" value={editForm.time} onChange={setEdit('time')} />
+            </div>
+
+            <Input
+              label="Quote Amount ($)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={editForm.quoteAmount}
+              onChange={setEdit('quoteAmount')}
+              placeholder="0.00"
+              helperText="Amount quoted to the customer (optional)"
+            />
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
+                Job Notes
+              </label>
+              <textarea
+                value={editForm.jobNotes}
+                onChange={setEdit('jobNotes')}
+                placeholder="Any notes about this job..."
+                rows={3}
+                className="w-full text-sm rounded-lg border border-slate-300 p-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

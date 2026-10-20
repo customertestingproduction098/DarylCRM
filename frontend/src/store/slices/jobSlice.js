@@ -37,6 +37,30 @@ export const createJob = createAsyncThunk(
   }
 );
 
+export const updateJob = createAsyncThunk(
+  'jobs/updateJob',
+  async ({ id, changes }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/jobs/${id}`, changes);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
+export const deleteJob = createAsyncThunk(
+  'jobs/deleteJob',
+  async (id, { rejectWithValue }) => {
+    try {
+      await api.delete(`/jobs/${id}`);
+      return { id };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
 export const updateJobStatus = createAsyncThunk(
   'jobs/updateJobStatus',
   async ({ id, status }, { rejectWithValue }) => {
@@ -61,13 +85,18 @@ export const uploadJobMedia = createAsyncThunk(
       });
       return response.data;
     } catch (error) {
-      return rejectWithValue({
-        message: error.response?.data?.error || error.message,
-        offline: !error.response
-      });
+      return rejectWithValue(error.response?.data?.error || error.message);
     }
   }
 );
+
+const applyJobUpdate = (state, job) => {
+  const index = state.items.findIndex((j) => j._id === job._id);
+  if (index !== -1) state.items[index] = job;
+  if (state.selectedJob && state.selectedJob._id === job._id) {
+    state.selectedJob = job;
+  }
+};
 
 const jobSlice = createSlice({
   name: 'jobs',
@@ -80,36 +109,7 @@ const jobSlice = createSlice({
     isLoading: false,
     error: null
   },
-  reducers: {
-    addJobLocal: (state, action) => {
-      state.items.unshift(action.payload);
-      state.total += 1;
-    },
-    updateJobStatusLocal: (state, action) => {
-      const { id, status } = action.payload;
-      const job = state.items.find(j => j._id === id || j.jobId === id);
-      if (job) {
-        job.status = status;
-        job.jobStatus = status;
-      }
-      if (state.selectedJob && (state.selectedJob._id === id || state.selectedJob.jobId === id)) {
-        state.selectedJob.status = status;
-        state.selectedJob.jobStatus = status;
-      }
-    },
-    setJobMediaLocal: (state, action) => {
-      const { id, slot, url } = action.payload;
-      const targets = [];
-      const inList = state.items.find(j => j._id === id);
-      if (inList) targets.push(inList);
-      if (state.selectedJob && state.selectedJob._id === id) targets.push(state.selectedJob);
-
-      targets.forEach((job) => {
-        job.media = job.media || {};
-        job.media[`${slot}Video`] = { url, uploadedAt: new Date().toISOString() };
-      });
-    }
-  },
+  reducers: {},
   extraReducers: (builder) => {
     builder
       .addCase(fetchJobs.pending, (state) => {
@@ -118,12 +118,10 @@ const jobSlice = createSlice({
       })
       .addCase(fetchJobs.fulfilled, (state, action) => {
         state.isLoading = false;
-        if (action.payload?.data && action.payload.data.length > 0) {
-          state.items = action.payload.data;
-          state.total = action.payload.total;
-          state.page = action.payload.page;
-          state.pages = action.payload.pages;
-        }
+        state.items = action.payload?.data || [];
+        state.total = action.payload?.total || 0;
+        state.page = action.payload?.page || 1;
+        state.pages = action.payload?.pages || 1;
       })
       .addCase(fetchJobs.rejected, (state, action) => {
         state.isLoading = false;
@@ -136,26 +134,23 @@ const jobSlice = createSlice({
         state.items.unshift(action.payload);
         state.total += 1;
       })
-      .addCase(updateJobStatus.fulfilled, (state, action) => {
-        const index = state.items.findIndex(j => j._id === action.payload._id);
-        if (index !== -1) {
-          state.items[index] = action.payload;
-        }
-        if (state.selectedJob && state.selectedJob._id === action.payload._id) {
-          state.selectedJob = action.payload;
+      .addCase(updateJob.fulfilled, (state, action) => {
+        applyJobUpdate(state, action.payload);
+      })
+      .addCase(deleteJob.fulfilled, (state, action) => {
+        state.items = state.items.filter((j) => j._id !== action.payload.id);
+        state.total = Math.max(0, state.total - 1);
+        if (state.selectedJob?._id === action.payload.id) {
+          state.selectedJob = null;
         }
       })
+      .addCase(updateJobStatus.fulfilled, (state, action) => {
+        applyJobUpdate(state, action.payload);
+      })
       .addCase(uploadJobMedia.fulfilled, (state, action) => {
-        const index = state.items.findIndex(j => j._id === action.payload._id);
-        if (index !== -1) {
-          state.items[index] = action.payload;
-        }
-        if (state.selectedJob && state.selectedJob._id === action.payload._id) {
-          state.selectedJob = action.payload;
-        }
+        applyJobUpdate(state, action.payload);
       });
   }
 });
 
-export const { addJobLocal, updateJobStatusLocal, setJobMediaLocal } = jobSlice.actions;
 export default jobSlice.reducer;

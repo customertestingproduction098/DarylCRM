@@ -24,7 +24,7 @@ const jobSchema = new Schema({
     default: 'scheduled'
   },
   location: String,
-  appointmentDateTime: { type: Date, required: true },
+  appointmentDateTime: { type: Date },
   specifications: {
     glassType: String,
     repairType: String,
@@ -35,6 +35,7 @@ const jobSchema = new Schema({
   supplierName: String,
   supplierOrderedFrom: String,
   supplierOrderId: String,
+  quoteAmount: { type: Number, default: null },
   quoteId: { type: Schema.Types.ObjectId, ref: 'Quote' },
   invoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
   media: {
@@ -52,10 +53,26 @@ const jobSchema = new Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+// Auto generated PO number (also used when an edit clears the field)
+jobSchema.statics.nextPoNumber = async function () {
+  const year = new Date().getFullYear();
+  let n = (await this.countDocuments({ poNumber: { $ne: null } })) + 1;
+  let po = `PO-${year}-${String(n).padStart(4, '0')}`;
+  while (await this.exists({ poNumber: po })) {
+    n += 1;
+    po = `PO-${year}-${String(n).padStart(4, '0')}`;
+  }
+  return po;
+};
+
 jobSchema.pre('save', async function () {
   if (!this.jobId) {
     const count = await this.constructor.countDocuments();
     this.jobId = `JOB-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  }
+  // PO number is auto generated when the form leaves it blank
+  if (!this.poNumber) {
+    this.poNumber = await this.constructor.nextPoNumber();
   }
 });
 

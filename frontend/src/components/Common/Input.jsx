@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function Input({
   label,
@@ -11,9 +12,16 @@ export default function Input({
   helperText,
   disabled = false,
   required = false,
+  maxLength,
+  min,
+  max,
+  step,
   icon: Icon,
   className = ''
 }) {
+  const isPassword = type === 'password';
+  const [revealed, setRevealed] = useState(false);
+
   return (
     <div className={`flex flex-col gap-1 w-full ${className}`}>
       {label && (
@@ -30,19 +38,34 @@ export default function Input({
         <input
           id={name}
           name={name}
-          type={type}
+          type={isPassword && revealed ? 'text' : type}
           value={value}
           onChange={onChange}
           placeholder={placeholder}
           disabled={disabled}
+          maxLength={maxLength}
+          min={min}
+          max={max}
+          step={step}
           className={`w-full text-sm rounded-lg border bg-white py-2 px-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 transition-all ${
             Icon ? 'pl-9' : ''
-          } ${
+          } ${isPassword ? 'pr-10' : ''} ${
             error
               ? 'border-red-500 focus:border-red-500 focus:ring-red-200'
               : 'border-slate-300 focus:border-blue-600 focus:ring-blue-100'
           } ${disabled ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
         />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            aria-label={revealed ? 'Hide password' : 'Show password'}
+            tabIndex={0}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none focus:text-slate-600 cursor-pointer"
+          >
+            {revealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        )}
       </div>
       {error ? (
         <span className="text-xs text-red-600 font-medium">{error}</span>

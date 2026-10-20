@@ -29,7 +29,7 @@ const buildTotals = async (lineItems = []) => {
 
 exports.createInvoice = async (req, res) => {
   try {
-    const { customerId, jobId, quoteId, lineItems, notes, dueDate, paymentStatus } = req.body;
+    const { customerId, jobId, lineItems, notes, dueDate, paymentStatus } = req.body;
 
     if (!customerId) {
       return res.status(400).json({ error: 'Customer ID required' });
@@ -40,7 +40,6 @@ exports.createInvoice = async (req, res) => {
     const invoice = new Invoice({
       customerId,
       jobId,
-      quoteId,
       notes,
       paymentStatus: paymentStatus || 'pending',
       ...totals,
@@ -104,7 +103,7 @@ exports.getInvoices = async (req, res) => {
 
 exports.getInvoiceById = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id).populate('customerId jobId quoteId');
+    const invoice = await Invoice.findById(req.params.id).populate('customerId jobId');
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
@@ -130,7 +129,21 @@ exports.updateInvoice = async (req, res) => {
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
-    res.json(invoice);
+
+    // Totals changed: keep the payment status consistent with what has been paid
+    if (req.body.lineItems) {
+      if (invoice.amountPaid >= invoice.totalAmount) {
+        invoice.paymentStatus = 'paid';
+      } else if (invoice.amountPaid > 0) {
+        invoice.paymentStatus = 'partial';
+      } else if (invoice.paymentStatus === 'paid' || invoice.paymentStatus === 'partial') {
+        invoice.paymentStatus = 'pending';
+      }
+      await invoice.save();
+    }
+
+    const populated = await Invoice.findById(invoice._id).populate('customerId jobId');
+    res.json(populated);
   } catch (error) {
     fail(res, error, 'Failed to update invoice');
   }
@@ -159,7 +172,8 @@ exports.recordPayment = async (req, res) => {
     }
 
     await invoice.save();
-    res.json(invoice);
+    const populated = await Invoice.findById(invoice._id).populate('customerId jobId');
+    res.json(populated);
   } catch (error) {
     fail(res, error, 'Failed to record payment');
   }
@@ -195,7 +209,7 @@ exports.uploadInvoiceCopy = async (req, res) => {
 
     const invoice = await Invoice.findByIdAndUpdate(
       req.params.id,
-      { fileLocation: /uploads/, updatedAt: new Date() },
+      { fileLocation: `/uploads/${req.file.filename}`, updatedAt: new Date() },
       { new: true }
     );
     if (!invoice) {

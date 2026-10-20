@@ -73,12 +73,72 @@ export const createCustomer = createAsyncThunk(
   }
 );
 
+export const updateCustomer = createAsyncThunk(
+  'customers/updateCustomer',
+  async ({ id, changes }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/customers/${id}`, changes);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
+export const deleteCustomer = createAsyncThunk(
+  'customers/deleteCustomer',
+  async (id, { rejectWithValue }) => {
+    try {
+      await api.delete(`/customers/${id}`);
+      return { id };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
 export const createVehicle = createAsyncThunk(
   'customers/createVehicle',
   async ({ customerId, data }, { rejectWithValue }) => {
     try {
       const response = await api.post('/vehicles', { customerId, ...data });
       return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
+export const fetchCustomerVehicles = createAsyncThunk(
+  'customers/fetchCustomerVehicles',
+  async (customerId, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/vehicles/customer/${customerId}`);
+      return { customerId, vehicles: response.data };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
+export const updateVehicle = createAsyncThunk(
+  'customers/updateVehicle',
+  async ({ id, changes }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/vehicles/${id}`, changes);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
+export const deleteVehicle = createAsyncThunk(
+  'customers/deleteVehicle',
+  async (id, { rejectWithValue }) => {
+    try {
+      await api.delete(`/vehicles/${id}`);
+      return { id };
     } catch (error) {
       return rejectWithValue(error.response?.data?.error || error.message);
     }
@@ -97,36 +157,45 @@ export const createNote = createAsyncThunk(
   }
 );
 
+export const updateNote = createAsyncThunk(
+  'customers/updateNote',
+  async ({ id, content }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/notes/${id}`, { content });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
+export const deleteNote = createAsyncThunk(
+  'customers/deleteNote',
+  async (id, { rejectWithValue }) => {
+    try {
+      await api.delete(`/notes/${id}`);
+      return { id };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
 const customerSlice = createSlice({
   name: 'customers',
   initialState: {
     items: [],
     selectedCustomer: null,
     customerHistory: null,
+    customerVehicles: [],
+    vehiclesCustomerId: null,
     total: 0,
     page: 1,
     pages: 1,
     isLoading: false,
     error: null
   },
-  reducers: {
-    addCustomerLocal: (state, action) => {
-      state.items.unshift(action.payload);
-      state.total += 1;
-    },
-    // Adds an item to the loaded customer history without a refetch
-    appendHistoryItem: (state, action) => {
-      const { key, item } = action.payload;
-      if (state.customerHistory && Array.isArray(state.customerHistory[key])) {
-        state.customerHistory[key].unshift(item);
-      }
-    },
-    addVehicleLocal: (state, action) => {
-      if (state.customerHistory && Array.isArray(state.customerHistory.vehicles)) {
-        state.customerHistory.vehicles.push(action.payload);
-      }
-    }
-  },
+  reducers: {},
   extraReducers: (builder) => {
     builder
       // fetchCustomers
@@ -136,12 +205,10 @@ const customerSlice = createSlice({
       })
       .addCase(fetchCustomers.fulfilled, (state, action) => {
         state.isLoading = false;
-        if (action.payload?.data && action.payload.data.length > 0) {
-          state.items = action.payload.data;
-          state.total = action.payload.total;
-          state.page = action.payload.page;
-          state.pages = action.payload.pages;
-        }
+        state.items = action.payload?.data || [];
+        state.total = action.payload?.total || 0;
+        state.page = action.payload?.page || 1;
+        state.pages = action.payload?.pages || 1;
       })
       .addCase(fetchCustomers.rejected, (state, action) => {
         state.isLoading = false;
@@ -171,11 +238,41 @@ const customerSlice = createSlice({
         state.items.unshift(action.payload);
         state.total += 1;
       })
+      // Update
+      .addCase(updateCustomer.fulfilled, (state, action) => {
+        const index = state.items.findIndex((c) => c._id === action.payload._id);
+        if (index !== -1) state.items[index] = action.payload;
+        if (state.selectedCustomer?._id === action.payload._id) {
+          state.selectedCustomer = action.payload;
+        }
+        if (state.customerHistory?.customer?._id === action.payload._id) {
+          state.customerHistory.customer = action.payload;
+        }
+      })
+      // Delete
+      .addCase(deleteCustomer.fulfilled, (state, action) => {
+        state.items = state.items.filter((c) => c._id !== action.payload.id);
+        state.total = Math.max(0, state.total - 1);
+        if (state.selectedCustomer?._id === action.payload.id) {
+          state.selectedCustomer = null;
+        }
+      })
       .addCase(createVehicle.fulfilled, (state, action) => {
         const history = state.customerHistory;
         if (history?.customer && action.payload.customerId === history.customer._id) {
           history.vehicles = [...(history.vehicles || []), action.payload];
         }
+        if (action.payload.customerId === state.vehiclesCustomerId) {
+          state.customerVehicles = [...state.customerVehicles, action.payload];
+        }
+      })
+      .addCase(fetchCustomerVehicles.pending, (state, action) => {
+        state.vehiclesCustomerId = action.meta.arg;
+        state.customerVehicles = [];
+      })
+      .addCase(fetchCustomerVehicles.fulfilled, (state, action) => {
+        state.vehiclesCustomerId = action.payload.customerId;
+        state.customerVehicles = Array.isArray(action.payload.vehicles) ? action.payload.vehicles : [];
       })
       .addCase(createNote.fulfilled, (state, action) => {
         const history = state.customerHistory;
@@ -186,5 +283,4 @@ const customerSlice = createSlice({
   }
 });
 
-export const { addCustomerLocal, appendHistoryItem, addVehicleLocal } = customerSlice.actions;
 export default customerSlice.reducer;

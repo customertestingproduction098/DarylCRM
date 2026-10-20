@@ -1,11 +1,10 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Users, Wrench, FileText, CreditCard } from 'lucide-react';
+import { Users, Wrench, CreditCard } from 'lucide-react';
 
 const navItems = [
   { label: 'Customers', path: '/customers', icon: Users },
   { label: 'Jobs', path: '/jobs', icon: Wrench },
-  { label: 'Quotes', path: '/quotes', icon: FileText },
   { label: 'Invoices', path: '/invoices', icon: CreditCard }
 ];
 

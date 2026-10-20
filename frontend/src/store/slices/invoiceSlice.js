@@ -49,6 +49,18 @@ export const updateInvoice = createAsyncThunk(
   }
 );
 
+export const deleteInvoice = createAsyncThunk(
+  'invoices/deleteInvoice',
+  async (id, { rejectWithValue }) => {
+    try {
+      await api.delete(`/invoices/${id}`);
+      return { id };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
 export const uploadInvoiceCopy = createAsyncThunk(
   'invoices/uploadInvoiceCopy',
   async ({ id, file }, { rejectWithValue }) => {
@@ -60,10 +72,7 @@ export const uploadInvoiceCopy = createAsyncThunk(
       });
       return response.data;
     } catch (error) {
-      return rejectWithValue({
-        message: error.response?.data?.error || error.message,
-        offline: !error.response
-      });
+      return rejectWithValue(error.response?.data?.error || error.message);
     }
   }
 );
@@ -76,18 +85,13 @@ const invoiceSlice = createSlice({
     isLoading: false,
     error: null
   },
-  reducers: {
-    addInvoiceLocal: (state, action) => {
-      state.items.unshift(action.payload);
-      state.total += 1;
-    },
-    updateInvoiceLocal: (state, action) => {
-      const { id, changes } = action.payload;
-      const invoice = state.items.find(i => i._id === id);
-      if (invoice) Object.assign(invoice, changes);
-    }
-  },
+  reducers: {},
   extraReducers: (builder) => {
+    const applyUpdate = (state, invoice) => {
+      const index = state.items.findIndex((i) => i._id === invoice._id);
+      if (index !== -1) state.items[index] = invoice;
+    };
+
     builder
       .addCase(fetchInvoices.pending, (state) => {
         state.isLoading = true;
@@ -95,10 +99,8 @@ const invoiceSlice = createSlice({
       })
       .addCase(fetchInvoices.fulfilled, (state, action) => {
         state.isLoading = false;
-        if (action.payload?.data && action.payload.data.length > 0) {
-          state.items = action.payload.data;
-          state.total = action.payload.total;
-        }
+        state.items = action.payload?.data || [];
+        state.total = action.payload?.total || 0;
       })
       .addCase(fetchInvoices.rejected, (state, action) => {
         state.isLoading = false;
@@ -109,25 +111,19 @@ const invoiceSlice = createSlice({
         state.total += 1;
       })
       .addCase(recordPayment.fulfilled, (state, action) => {
-        const index = state.items.findIndex(i => i._id === action.payload._id);
-        if (index !== -1) {
-          state.items[index] = action.payload;
-        }
+        applyUpdate(state, action.payload);
       })
       .addCase(updateInvoice.fulfilled, (state, action) => {
-        const index = state.items.findIndex(i => i._id === action.payload._id);
-        if (index !== -1) {
-          state.items[index] = action.payload;
-        }
+        applyUpdate(state, action.payload);
+      })
+      .addCase(deleteInvoice.fulfilled, (state, action) => {
+        state.items = state.items.filter((i) => i._id !== action.payload.id);
+        state.total = Math.max(0, state.total - 1);
       })
       .addCase(uploadInvoiceCopy.fulfilled, (state, action) => {
-        const index = state.items.findIndex(i => i._id === action.payload._id);
-        if (index !== -1) {
-          state.items[index] = action.payload;
-        }
+        applyUpdate(state, action.payload);
       });
   }
 });
 
-export const { addInvoiceLocal, updateInvoiceLocal } = invoiceSlice.actions;
 export default invoiceSlice.reducer;
