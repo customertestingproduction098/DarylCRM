@@ -21,12 +21,12 @@ const generateToken = (user) => {
   );
 };
 
-// Helper to set cookie
+// Helper to set cookie for cross-domain Netlify -> Railway deployment
 const setAuthCookie = (res, token) => {
   res.cookie('token', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'none',
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   });
 };
@@ -115,13 +115,22 @@ exports.login = async (req, res) => {
       }
     } else {
       // No ADMIN_EMAIL/ADMIN_PASSWORD configured: fall back to database users
-      user = await User.findOne({ email: email.toLowerCase() });
-      if (!user || !user.isActive) {
+      const normalizedEmail = String(email).toLowerCase().trim();
+      user = await User.findOne({ email: normalizedEmail });
+
+      if (!user) {
+        console.warn(`[AUTH] Login failed: User "${normalizedEmail}" not found in database.`);
         return res.status(401).json({ error: 'Invalid email or password', message: 'Invalid credentials' });
+      }
+
+      if (user.isActive === false) {
+        console.warn(`[AUTH] Login failed: User "${normalizedEmail}" is deactivated.`);
+        return res.status(401).json({ error: 'Account is deactivated. Contact administrator.', message: 'Account is deactivated' });
       }
 
       const isPasswordValid = await bcryptjs.compare(password, user.password);
       if (!isPasswordValid) {
+        console.warn(`[AUTH] Login failed: Password mismatch for user "${normalizedEmail}".`);
         return res.status(401).json({ error: 'Invalid email or password', message: 'Invalid credentials' });
       }
     }
@@ -149,7 +158,11 @@ exports.login = async (req, res) => {
 };
 
 exports.logout = async (req, res) => {
-  res.clearCookie('token');
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none'
+  });
   res.json({ message: 'Logged out successfully' });
 };
 

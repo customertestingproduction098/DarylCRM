@@ -29,7 +29,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:', 'https:', 'http:'],
-      connectSrc: ["'self'", 'http://localhost:3000', 'http://localhost:5173', process.env.FRONTEND_URL || '']
+      connectSrc: ["'self'", 'http://localhost:3000', 'http://localhost:5173', 'https://daryls-glass-crm.netlify.app', process.env.FRONTEND_URL || '']
     }
   },
   crossOriginEmbedderPolicy: false
@@ -41,6 +41,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:3000',
+  'https://daryls-glass-crm.netlify.app',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
@@ -95,13 +96,12 @@ app.get('/api/csrf-token', (req, res) => {
   const crypto = require('crypto');
   const token = crypto.randomBytes(32).toString('hex');
   res.cookie('XSRF-TOKEN', token, {
-    httpOnly: false, // Accessible by frontend JS to copy into request header
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    httpOnly: false,
+    secure: true,
+    sameSite: 'none'
   });
   res.json({ csrfToken: token });
 });
-
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/customers', customerRoutes);
