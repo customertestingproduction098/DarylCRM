@@ -53,6 +53,7 @@ const validateJob = [
 // Invoice validation
 const validateInvoice = [
   body('customerId').isMongoId().withMessage('Invalid customer ID'),
+  body('jobId').isMongoId().withMessage('A job must be selected for this invoice'),
   body('lineItems').isArray({ min: 1 }).withMessage('At least one line item required'),
   handleValidationErrors
 ];

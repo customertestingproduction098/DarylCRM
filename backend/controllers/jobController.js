@@ -74,7 +74,8 @@ exports.createJob = async (req, res) => {
 
     await Customer.findByIdAndUpdate(customerId, { lastContactDate: new Date() });
 
-    res.status(201).json(job);
+    const populated = await Job.findById(job._id).populate('customerId vehicleId');
+    res.status(201).json(populated);
   } catch (error) {
     fail(res, error, 'Failed to create job');
   }
@@ -238,7 +239,8 @@ exports.updateJobStatus = async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    res.json(job);
+    const populated = await Job.findById(job._id).populate('customerId vehicleId');
+    res.json(populated);
   } catch (error) {
     fail(res, error, 'Failed to update job status');
   }

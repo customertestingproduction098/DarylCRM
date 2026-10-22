@@ -1,19 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Plus, Upload, CreditCard, Filter, FileCheck2, FileText, Printer, Paperclip, Undo2 } from 'lucide-react';
+import { Plus, Upload, CreditCard, Filter, FileCheck2, Printer, Paperclip, Undo2 } from 'lucide-react';
 import StatusBadge from '../components/Common/StatusBadge';
 import Table from '../components/Common/Table';
 import Button from '../components/Common/Button';
 import Modal from '../components/Common/Modal';
-import Input from '../components/Common/Input';
 import Loading from '../components/Common/Loading';
 import RowActions from '../components/Common/RowActions';
 import ConfirmDialog from '../components/Common/ConfirmDialog';
 import InvoiceDocument from '../components/Common/InvoiceDocument';
+import InvoiceFormModal from '../components/Common/InvoiceFormModal';
 import mediaUrl from '../utils/mediaUrl';
 import {
   fetchInvoices,
-  createInvoice,
   recordPayment,
   updateInvoice,
   deleteInvoice,
@@ -22,15 +21,9 @@ import {
 import { fetchCustomers } from '../store/slices/customerSlice';
 import { fetchJobs } from '../store/slices/jobSlice';
 
-const emptyInvoice = { customerId: '', jobId: '', description: '', amount: '' };
-
-const BILLABLE_JOB_STATUSES = ['scheduled', 'in_progress'];
-
 export default function InvoicesPage() {
   const dispatch = useDispatch();
   const { items: invoices, isLoading } = useSelector((state) => state.invoices);
-  const { items: customers } = useSelector((state) => state.customers);
-  const { items: jobs } = useSelector((state) => state.jobs);
   const fileInputRef = useRef(null);
 
   const [statusFilter, setStatusFilter] = useState('All');
@@ -38,9 +31,6 @@ export default function InvoicesPage() {
   const [editingInvoice, setEditingInvoice] = useState(null);
   const [uploadTarget, setUploadTarget] = useState(null);
   const [uploadError, setUploadError] = useState('');
-  const [form, setForm] = useState(emptyInvoice);
-  const [formError, setFormError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
   const [actionError, setActionError] = useState('');
   const [viewTarget, setViewTarget] = useState(null);
   const [justPaidId, setJustPaidId] = useState(null);
@@ -53,23 +43,6 @@ export default function InvoicesPage() {
     dispatch(fetchCustomers({ limit: 100 }));
     dispatch(fetchJobs({ limit: 100 }));
   }, [dispatch]);
-
-  // Only scheduled / in-progress jobs of the selected customer are billable
-  const jobsForSelectedCustomer = jobs.filter((j) => {
-    const jobCustomerId = j.customerId?._id || j.customerId;
-    if (String(jobCustomerId) !== String(form.customerId)) return false;
-    return BILLABLE_JOB_STATUSES.includes(j.jobStatus || j.status);
-  });
-
-  const jobOptionLabel = (j) => {
-    const when = String(j.appointmentDateTime || '').split('T')[0];
-    const vehicle = j.vehicleId && typeof j.vehicleId === 'object' ? j.vehicleId : null;
-    const detail = vehicle
-      ? [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')
-      : (j.location || '');
-    const svc = (j.jobType || '').includes('replacement') ? 'Replacement' : 'Repair';
-    return `${j.jobId || j._id} · ${svc}${detail ? ` · ${detail}` : ''}${when ? ` · ${when}` : ''}`;
-  };
 
   const filteredInvoices = invoices.filter((i) => {
     if (statusFilter === 'All') return true;
@@ -162,79 +135,12 @@ export default function InvoicesPage() {
 
   const openAddModal = () => {
     setEditingInvoice(null);
-    setForm(emptyInvoice);
-    setFormError('');
     setIsModalOpen(true);
   };
 
   const openEditModal = (inv) => {
     setEditingInvoice(inv);
-    setForm({
-      customerId: inv.customerId?._id || inv.customerId || '',
-      jobId: inv.jobId?._id || inv.jobId || '',
-      description: inv.lineItems?.[0]?.description || '',
-      amount: String(inv.lineItems?.[0]?.unitPrice ?? '')
-    });
-    setFormError('');
     setIsModalOpen(true);
-  };
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    setFormError('');
-
-    const amount = parseFloat(form.amount);
-    if (!editingInvoice) {
-      const customer = customers.find((c) => c._id === form.customerId);
-      if (!customer) {
-        setFormError('Choose the customer this invoice is for.');
-        return;
-      }
-    }
-    if (!amount || amount <= 0) {
-      setFormError('Enter the invoice amount.');
-      return;
-    }
-
-    setIsSaving(true);
-
-    try {
-      if (editingInvoice) {
-        await dispatch(updateInvoice({
-          id: editingInvoice._id,
-          changes: {
-            jobId: form.jobId || null,
-            lineItems: [
-              {
-                description: form.description || 'Glass work',
-                quantity: 1,
-                unitPrice: amount
-              }
-            ]
-          }
-        })).unwrap();
-      } else {
-        const customer = customers.find((c) => c._id === form.customerId);
-        await dispatch(createInvoice({
-          customerId: customer._id,
-          ...(form.jobId ? { jobId: form.jobId } : {}),
-          customerName: `${customer.firstName} ${customer.lastName}`,
-          invoiceDate: new Date().toISOString().split('T')[0],
-          lineItems: [{ description: form.description || 'Glass work', quantity: 1, unitPrice: amount }],
-          totalAmount: amount,
-          amountPaid: 0,
-          paymentStatus: 'pending',
-          physicalCopyFiled: false
-        })).unwrap();
-      }
-      setIsModalOpen(false);
-      setEditingInvoice(null);
-      setForm(emptyInvoice);
-    } catch (err) {
-      setFormError(typeof err === 'string' ? err : 'Could not save the invoice. Is the server running?');
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   const handleDelete = async () => {
@@ -302,7 +208,7 @@ export default function InvoicesPage() {
         <Loading text="Loading invoices..." />
       ) : (
         <Table
-          columns={['Invoice ID', 'Customer', 'Date', 'Amount', 'Paid', 'Status', 'Digital Copy', 'Paper Filed', '', '']}
+          columns={['Invoice ID', 'Customer', 'Job', 'Date', 'Amount', 'Paid', 'Status', 'Digital Copy', 'Paper Filed', '', '']}
           data={filteredInvoices}
           renderRow={(inv) => {
             const customerDisplayName = inv.customerId?.firstName
@@ -313,11 +219,16 @@ export default function InvoicesPage() {
             const amount = Number(inv.totalAmount || inv.amount || 0);
             const paid = Number(inv.amountPaid || inv.paid || 0);
             const copyUrl = mediaUrl(inv.fileLocation || inv.digitalCopyUrl);
+            const jobId = inv.jobId?._id || inv.jobId;
+            const jobLabel = inv.jobId?.jobId
+              || inv.jobId?.jobType
+              || (jobId ? String(jobId).slice(-6) : '—');
 
             return (
               <tr key={inv._id} className="hover:bg-slate-50/70">
                 <td className="px-4 py-3 font-bold text-slate-900">{inv.invoiceId || inv._id}</td>
                 <td className="px-4 py-3 font-medium text-slate-800">{customerDisplayName}</td>
+                <td className="px-4 py-3 text-slate-600 font-medium">{jobLabel}</td>
                 <td className="px-4 py-3 text-slate-500">
                   {String(inv.invoiceDate || inv.date || '').split('T')[0] || '—'}
                 </td>
@@ -407,98 +318,14 @@ export default function InvoicesPage() {
         }}
       />
 
-      <Modal
+      <InvoiceFormModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title={editingInvoice ? `Edit ${editingInvoice.invoiceId || 'Invoice'}` : 'Create Invoice'}
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)} disabled={isSaving}>Cancel</Button>
-            <Button variant="primary" onClick={handleSave} isLoading={isSaving}>
-              {editingInvoice ? 'Save Changes' : 'Create Invoice'}
-            </Button>
-          </>
-        }
-      >
-        <form onSubmit={handleSave} className="space-y-4">
-          {formError && (
-            <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg">
-              {formError}
-            </div>
-          )}
-
-          {!editingInvoice && (
-            <div>
-              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
-                Customer <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={form.customerId}
-                onChange={(e) => setForm({ ...form, customerId: e.target.value, jobId: '' })}
-                className="w-full text-sm rounded-lg border border-slate-300 p-2 text-slate-800 bg-white"
-                required
-              >
-                <option value="">Select customer...</option>
-                {customers.map((c) => (
-                  <option key={c._id} value={c._id}>
-                    {c.firstName} {c.lastName} — {c.phoneNumber}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {!editingInvoice && form.customerId && (
-            <div>
-              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
-                Job (optional)
-              </label>
-              <select
-                value={form.jobId}
-                onChange={(e) => setForm({ ...form, jobId: e.target.value })}
-                className="w-full text-sm rounded-lg border border-slate-300 p-2 text-slate-800 bg-white"
-              >
-                <option value="">No linked job</option>
-                {jobsForSelectedCustomer.map((j) => (
-                  <option key={j._id} value={j._id}>
-                    {jobOptionLabel(j)}
-                  </option>
-                ))}
-              </select>
-              {jobsForSelectedCustomer.length === 0 ? (
-                <p className="text-[11px] text-amber-700 mt-1">
-                  This customer has no scheduled or in-progress jobs to invoice.
-                </p>
-              ) : (
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Only scheduled and in-progress jobs are listed.
-                </p>
-              )}
-            </div>
-          )}
-
-          <Input
-            label="What is being invoiced?"
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            placeholder="Windshield replacement & materials"
-          />
-
-          <Input
-            label="Total Amount ($)"
-            type="number"
-            value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-            placeholder="680.00"
-            required
-          />
-
-          <p className="flex items-center gap-1.5 text-[11px] text-slate-500">
-            <FileText className="w-3.5 h-3.5" />
-            A digital copy is generated automatically. Attach a scan if you also keep a paper copy.
-          </p>
-        </form>
-      </Modal>
+        onClose={() => { setIsModalOpen(false); setEditingInvoice(null); }}
+        invoice={editingInvoice}
+        onSaved={(_saved, warning) => {
+          if (warning) setActionError(warning);
+        }}
+      />
 
       <Modal
         isOpen={Boolean(viewTarget)}

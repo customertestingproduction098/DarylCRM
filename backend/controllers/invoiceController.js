@@ -1,5 +1,6 @@
 const Invoice = require('../models/Invoice');
 const Customer = require('../models/Customer');
+const Job = require('../models/Job');
 const Settings = require('../models/Settings');
 const { fail } = require('../utils/errorHandler');
 
@@ -35,6 +36,16 @@ exports.createInvoice = async (req, res) => {
       return res.status(400).json({ error: 'Customer ID required' });
     }
 
+    // An invoice always belongs to a job
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID required' });
+    }
+
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
     const totals = await buildTotals(lineItems);
 
     const invoice = new Invoice({
@@ -50,9 +61,17 @@ exports.createInvoice = async (req, res) => {
 
     await invoice.save();
 
+    // Link the invoice back to the job (the first invoice stays linked)
+    if (!job.invoiceId) {
+      job.invoiceId = invoice._id;
+      job.updatedAt = new Date();
+      await job.save();
+    }
+
     await Customer.findByIdAndUpdate(customerId, { lastContactDate: new Date() });
 
-    res.status(201).json(invoice);
+    const populated = await Invoice.findById(invoice._id).populate('customerId jobId');
+    res.status(201).json(populated);
   } catch (error) {
     fail(res, error, 'Failed to create invoice');
   }

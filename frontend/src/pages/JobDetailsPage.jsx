@@ -7,6 +7,7 @@ import Loading from '../components/Common/Loading';
 import Button from '../components/Common/Button';
 import Modal from '../components/Common/Modal';
 import Input from '../components/Common/Input';
+import InvoiceFormModal from '../components/Common/InvoiceFormModal';
 import mediaUrl from '../utils/mediaUrl';
 import {
   fetchJobById,
@@ -14,6 +15,7 @@ import {
   updateJobStatus,
   uploadJobMedia
 } from '../store/slices/jobSlice';
+import { fetchInvoices } from '../store/slices/invoiceSlice';
 
 const fmt = (value) => (value ? String(value).replace('T', ' ').slice(0, 16) : '—');
 const pad = (n) => String(n).padStart(2, '0');
@@ -97,6 +99,10 @@ export default function JobDetailsPage() {
   const [editError, setEditError] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
+  const [showCompletePrompt, setShowCompletePrompt] = useState(false);
+  const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
+  const [invoiceWarning, setInvoiceWarning] = useState('');
+
   const { items: allJobs, selectedJob, isLoading } = useSelector((state) => state.jobs);
   const { items: invoices } = useSelector((state) => state.invoices);
 
@@ -104,6 +110,7 @@ export default function JobDetailsPage() {
     if (jobId) {
       dispatch(fetchJobById(jobId));
     }
+    dispatch(fetchInvoices({ limit: 100 }));
   }, [dispatch, jobId]);
 
   const job = selectedJob || allJobs.find((j) => j._id === jobId || j.jobId === jobId) || null;
@@ -115,6 +122,10 @@ export default function JobDetailsPage() {
     setStatusSaving(true);
     try {
       await dispatch(updateJobStatus({ id: job._id, status: newStatus })).unwrap();
+      // A finished job usually needs an invoice - offer to create one now.
+      if (newStatus === 'completed') {
+        setShowCompletePrompt(true);
+      }
     } catch (err) {
       setStatusError(typeof err === 'string' ? err : 'Could not update the status. Is the server running?');
     } finally {
@@ -240,7 +251,10 @@ export default function JobDetailsPage() {
   const insuranceNumber = vehicle?.insuranceNumber || job.insuranceNumber || '—';
 
   const customerId = job.customerId?._id || job.customerId;
-  const relatedInvoices = invoices.filter((i) => (i.customerId?._id || i.customerId) === customerId);
+  const jobInvoices = invoices.filter((i) => (i.jobId?._id || i.jobId) === job._id);
+  const relatedInvoices = jobInvoices.length
+    ? jobInvoices
+    : invoices.filter((i) => (i.customerId?._id || i.customerId) === customerId);
 
   const tabs = [
     { id: 'specs', label: 'Job Details', icon: Wrench },
@@ -328,7 +342,8 @@ export default function JobDetailsPage() {
             <div className="space-y-2">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Booking</h3>
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs">
-                <p><span className="font-semibold text-slate-700">Date & Time:</span> {fmt(job.appointmentDateTime)}</p>
+                <p><span className="font-semibold text-slate-700">Date &amp; Time:</span> {fmt(job.appointmentDateTime)}</p>
+                <p><span className="font-semibold text-slate-700">Job Created:</span> {fmt(job.createdAt)}</p>
                 <p><span className="font-semibold text-slate-700">PO Number:</span> {job.poNumber || '—'}</p>
                 <p><span className="font-semibold text-slate-700">Work Needed:</span> {service}</p>
               </div>
@@ -411,7 +426,12 @@ export default function JobDetailsPage() {
       {activeTab === 'financials' && (
         <div className="bg-white p-6 rounded-xl border border-slate-200 space-y-4">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Quote Amount</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-bold text-slate-900">Quote Amount</h3>
+              <Button variant="outline" size="sm" icon={FileText} onClick={() => setIsInvoiceOpen(true)}>
+                Create Invoice
+              </Button>
+            </div>
             {job.quoteAmount == null ? (
               <p className="text-xs text-slate-500">
                 No quote amount set. Click “Edit Job” to add one.
@@ -426,18 +446,25 @@ export default function JobDetailsPage() {
           <div className="pt-4 border-t border-slate-100">
             <h3 className="text-sm font-bold text-slate-900">Invoices</h3>
             {relatedInvoices.length === 0 ? (
-              <p className="text-xs text-slate-500">No invoices for this customer yet.</p>
+              <p className="text-xs text-slate-500">No invoices for this job yet.</p>
             ) : (
-              <ul className="divide-y divide-slate-100 text-xs">
-                {relatedInvoices.map((i) => (
-                  <li key={i._id} className="py-2.5 flex items-center justify-between">
-                    <span className="font-semibold text-slate-800">{i.invoiceId || i._id}</span>
-                    <span className="text-slate-500">{String(i.invoiceDate || i.date || '').split('T')[0]}</span>
-                    <span className="font-bold text-slate-900">${Number(i.totalAmount || i.amount || 0).toFixed(2)}</span>
-                    <StatusBadge status={i.paymentStatus || i.status} />
-                  </li>
-                ))}
-              </ul>
+              <>
+                {!jobInvoices.length && (
+                  <p className="text-[11px] text-slate-500 mb-1">
+                    Showing the customer's other invoices - this job has none yet.
+                  </p>
+                )}
+                <ul className="divide-y divide-slate-100 text-xs">
+                  {relatedInvoices.map((i) => (
+                    <li key={i._id} className="py-2.5 flex items-center justify-between">
+                      <span className="font-semibold text-slate-800">{i.invoiceId || i._id}</span>
+                      <span className="text-slate-500">{String(i.invoiceDate || i.date || '').split('T')[0]}</span>
+                      <span className="font-bold text-slate-900">${Number(i.totalAmount || i.amount || 0).toFixed(2)}</span>
+                      <StatusBadge status={i.paymentStatus || i.status} />
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
 
@@ -580,6 +607,59 @@ export default function JobDetailsPage() {
           </div>
         )}
       </Modal>
+
+      <Modal
+        isOpen={showCompletePrompt}
+        onClose={() => setShowCompletePrompt(false)}
+        title="Job completed"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCompletePrompt(false)}>
+              Do it later
+            </Button>
+            <Button
+              variant="primary"
+              icon={FileText}
+              onClick={() => {
+                setShowCompletePrompt(false);
+                setIsInvoiceOpen(true);
+              }}
+            >
+              Create Invoice
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            <span className="w-9 h-9 shrink-0 bg-green-50 text-green-600 rounded-lg flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5" />
+            </span>
+            <p className="text-sm text-slate-700 leading-relaxed">
+              Job {job.jobId || ''} is now marked as completed. Create the invoice for this job now
+              or come back to it later from the Invoices page.
+            </p>
+          </div>
+          {invoiceWarning && (
+            <div className="p-2.5 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg">
+              {invoiceWarning}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <InvoiceFormModal
+        isOpen={isInvoiceOpen}
+        onClose={() => setIsInvoiceOpen(false)}
+        customer={job.customerId && typeof job.customerId === 'object' ? job.customerId : null}
+        job={job}
+        onSaved={(saved, warning) => {
+          if (warning) setInvoiceWarning(warning);
+          if (job?._id) dispatch(fetchJobById(job._id));
+          dispatch(fetchInvoices({ limit: 100 }));
+          return saved;
+        }}
+      />
     </div>
   );
 }

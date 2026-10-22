@@ -11,6 +11,7 @@ import Modal from '../components/Common/Modal';
 import Input from '../components/Common/Input';
 import RowActions from '../components/Common/RowActions';
 import ConfirmDialog from '../components/Common/ConfirmDialog';
+import JobFormModal from '../components/Common/JobFormModal';
 import mediaUrl from '../utils/mediaUrl';
 import {
   fetchCustomerHistory,
@@ -64,6 +65,8 @@ export default function CustomerProfilePage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const [isJobModalOpen, setIsJobModalOpen] = useState(false);
 
   const { items: customers, customerHistory, isLoading } = useSelector((state) => state.customers);
   const { items: allJobs } = useSelector((state) => state.jobs);
@@ -367,9 +370,9 @@ export default function CustomerProfilePage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link to="/jobs">
-            <Button variant="primary" icon={Wrench}>New Job</Button>
-          </Link>
+          <Button variant="primary" icon={Wrench} onClick={() => setIsJobModalOpen(true)}>
+            New Job
+          </Button>
           <RowActions
             onEdit={openCustomerEdit}
             onDelete={() => askDelete('customer', customer, '')}
@@ -453,13 +456,14 @@ export default function CustomerProfilePage() {
                 <th className="p-3">Type</th>
                 <th className="p-3">Vehicle / Location</th>
                 <th className="p-3">Appointment</th>
+                <th className="p-3">Job Created</th>
                 <th className="p-3">Status</th>
                 <th className="p-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {customerJobs.length === 0 && (
-                <tr><td colSpan={6} className="p-4 text-slate-400">No jobs recorded yet.</td></tr>
+                <tr><td colSpan={7} className="p-4 text-slate-400">No jobs recorded yet.</td></tr>
               )}
               {customerJobs.map((j) => (
                 <tr key={j._id} className="hover:bg-slate-50/70">
@@ -473,6 +477,9 @@ export default function CustomerProfilePage() {
                   </td>
                   <td className="p-3 text-slate-500">
                     {String(j.appointmentDateTime || '').replace('T', ' ').slice(0, 16) || '—'}
+                  </td>
+                  <td className="p-3 text-slate-500">
+                    {j.createdAt ? String(j.createdAt).replace('T', ' ').slice(0, 16) : '—'}
                   </td>
                   <td className="p-3"><StatusBadge status={j.jobStatus || j.status} /></td>
                   <td className="p-3">
@@ -712,6 +719,13 @@ export default function CustomerProfilePage() {
           </div>
         </div>
       )}
+
+      <JobFormModal
+        isOpen={isJobModalOpen}
+        onClose={() => setIsJobModalOpen(false)}
+        customer={customer}
+        onSaved={() => refreshHistory()}
+      />
 
       <Modal
         isOpen={isCustomerModalOpen}
