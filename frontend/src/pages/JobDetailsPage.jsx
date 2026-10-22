@@ -299,6 +299,11 @@ export default function JobDetailsPage() {
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
+          {jobStatus === 'completed' && (
+            <Button variant="primary" size="sm" icon={FileText} onClick={() => setIsInvoiceOpen(true)}>
+              Create Invoice
+            </Button>
+          )}
           {statusError && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
               {statusError}
