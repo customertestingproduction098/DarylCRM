@@ -68,7 +68,7 @@ export default function JobsPage() {
       <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center gap-2">
         <Filter className="w-4 h-4 text-slate-400" />
         <span className="text-xs font-semibold text-slate-700">Status:</span>
-        {['All', 'scheduled', 'in_progress', 'completed', 'cancelled'].map((st) => (
+        {['All', 'quote', 'scheduled', 'in_progress', 'completed', 'cancelled'].map((st) => (
           <button
             key={st}
             onClick={() => setStatusFilter(st)}

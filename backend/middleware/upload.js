@@ -34,4 +34,9 @@ const uploadDocument = createUploader(25, (file) =>
   /\.(pdf|jpe?g|png|webp)$/i.test(file.originalname || '')
 );
 
-module.exports = { uploadVideo, uploadDocument };
+// Job note attachments (documents, images, PDFs, etc. - up to 25MB)
+const uploadAttachment = createUploader(25, (file) =>
+  !/\.(exe|bat|cmd|sh|ps1|vbs|msi)$/i.test(file.originalname || '')
+);
+
+module.exports = { uploadVideo, uploadDocument, uploadAttachment };

@@ -44,6 +44,10 @@ api.interceptors.response.use(
     // Only warn about session expiration on non-auth requests
     if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
       console.warn('Authentication expired or unauthorized access.');
+      localStorage.removeItem('token');
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

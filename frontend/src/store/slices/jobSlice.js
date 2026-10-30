@@ -90,6 +90,23 @@ export const uploadJobMedia = createAsyncThunk(
   }
 );
 
+export const addJobNote = createAsyncThunk(
+  'jobs/addJobNote',
+  async ({ id, content, file }, { rejectWithValue }) => {
+    try {
+      const form = new FormData();
+      if (content) form.append('content', content);
+      if (file) form.append('attachment', file);
+      const response = await api.post(`/jobs/${id}/notes`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.error || error.message);
+    }
+  }
+);
+
 const applyJobUpdate = (state, job) => {
   const index = state.items.findIndex((j) => j._id === job._id);
   if (index !== -1) state.items[index] = job;
@@ -148,6 +165,9 @@ const jobSlice = createSlice({
         applyJobUpdate(state, action.payload);
       })
       .addCase(uploadJobMedia.fulfilled, (state, action) => {
+        applyJobUpdate(state, action.payload);
+      })
+      .addCase(addJobNote.fulfilled, (state, action) => {
         applyJobUpdate(state, action.payload);
       });
   }

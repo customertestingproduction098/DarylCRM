@@ -20,7 +20,7 @@ const jobSchema = new Schema({
   },
   jobStatus: {
     type: String,
-    enum: ['scheduled', 'in_progress', 'completed', 'cancelled'],
+    enum: ['quote', 'scheduled', 'in_progress', 'completed', 'cancelled'],
     default: 'scheduled'
   },
   location: String,
@@ -45,7 +45,15 @@ const jobSchema = new Schema({
   notes: [{
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
     content: String,
-    createdAt: Date
+    attachment: {
+      url: String,
+      originalName: String,
+      mimetype: String,
+      size: Number
+    },
+    attachmentUrl: String,
+    attachmentName: String,
+    createdAt: { type: Date, default: Date.now }
   }],
   completionNotes: String,
   completedAt: Date,

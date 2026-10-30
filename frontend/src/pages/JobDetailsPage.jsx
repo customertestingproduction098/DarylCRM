@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { Wrench, Video, FileText, Upload, CheckCircle2, AlertCircle, Pencil } from 'lucide-react';
+import { Wrench, Video, FileText, Upload, CheckCircle2, AlertCircle, Pencil, Paperclip, X, File, ExternalLink } from 'lucide-react';
 import StatusBadge from '../components/Common/StatusBadge';
 import Loading from '../components/Common/Loading';
 import Button from '../components/Common/Button';
@@ -13,12 +13,26 @@ import {
   fetchJobById,
   updateJob,
   updateJobStatus,
-  uploadJobMedia
+  uploadJobMedia,
+  addJobNote
 } from '../store/slices/jobSlice';
 import { fetchInvoices } from '../store/slices/invoiceSlice';
 
 const fmt = (value) => (value ? String(value).replace('T', ' ').slice(0, 16) : '—');
 const pad = (n) => String(n).padStart(2, '0');
+
+const formatFileSize = (bytes) => {
+  if (!bytes || bytes === 0) return '';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
+const isImageFile = (filename, mimetype) => {
+  if (mimetype && mimetype.startsWith('image/')) return true;
+  return /\.(jpe?g|png|webp|gif|svg)$/i.test(filename || '');
+};
 
 function VideoSlot({ label, accent, video, onFile, uploading, error }) {
   const inputRef = useRef(null);
@@ -103,6 +117,12 @@ export default function JobDetailsPage() {
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
   const [invoiceWarning, setInvoiceWarning] = useState('');
 
+  const [noteText, setNoteText] = useState('');
+  const [noteAttachment, setNoteAttachment] = useState(null);
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError] = useState('');
+  const noteFileRef = useRef(null);
+
   const { items: allJobs, selectedJob, isLoading } = useSelector((state) => state.jobs);
   const { items: invoices } = useSelector((state) => state.invoices);
 
@@ -143,6 +163,32 @@ export default function JobDetailsPage() {
       setUploadError(typeof err === 'string' ? err : 'Upload failed. Is the server running?');
     } finally {
       setUploading(null);
+    }
+  };
+
+  const handleAddNote = async (e) => {
+    e?.preventDefault();
+    if (!noteText.trim() && !noteAttachment) return;
+    if (!job?._id) return;
+
+    setNoteSaving(true);
+    setNoteError('');
+
+    try {
+      await dispatch(
+        addJobNote({
+          id: job._id,
+          content: noteText.trim(),
+          file: noteAttachment
+        })
+      ).unwrap();
+      setNoteText('');
+      setNoteAttachment(null);
+      if (noteFileRef.current) noteFileRef.current.value = '';
+    } catch (err) {
+      setNoteError(typeof err === 'string' ? err : 'Could not add note. Is the server running?');
+    } finally {
+      setNoteSaving(false);
     }
   };
 
@@ -293,6 +339,7 @@ export default function JobDetailsPage() {
               disabled={statusSaving}
               className="text-xs font-semibold rounded-lg border border-slate-300 px-3 py-1.5 bg-slate-50 text-slate-800 cursor-pointer disabled:opacity-60"
             >
+              <option value="quote">Quote</option>
               <option value="scheduled">Scheduled</option>
               <option value="in_progress">In Progress</option>
               <option value="completed">Completed</option>
@@ -377,21 +424,171 @@ export default function JobDetailsPage() {
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Job Notes</h3>
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 space-y-2">
-              <p>{job.specifications?.workDetails || '—'}</p>
-              {(job.notes || []).length > 0 && (
-                <ul className="divide-y divide-slate-200 pt-2 space-y-2">
-                  {job.notes.map((n, i) => (
-                    <li key={n._id || i} className="pt-2">
-                      <p>{n.content}</p>
-                      <span className="text-[10px] text-slate-400">
-                        {n.createdAt ? String(n.createdAt).split('T')[0] : ''}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+
+            {/* Note creation form with attachment */}
+            <form onSubmit={handleAddNote} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+              {noteError && (
+                <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{noteError}</span>
+                </div>
+              )}
+
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Write a note about this job..."
+                rows={2}
+                className="w-full text-xs rounded-lg border border-slate-300 p-2.5 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-800"
+              />
+
+              {noteAttachment && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
+                  <Paperclip className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="font-medium truncate max-w-xs">{noteAttachment.name}</span>
+                  {noteAttachment.size > 0 && (
+                    <span className="text-blue-500 text-[11px]">({formatFileSize(noteAttachment.size)})</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNoteAttachment(null);
+                      if (noteFileRef.current) noteFileRef.current.value = '';
+                    }}
+                    className="text-blue-600 hover:text-blue-800 ml-1 cursor-pointer"
+                    title="Remove attachment"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <div>
+                  <input
+                    ref={noteFileRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setNoteAttachment(file);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    icon={Paperclip}
+                    onClick={() => noteFileRef.current?.click()}
+                    disabled={noteSaving}
+                  >
+                    {noteAttachment ? 'Change Attachment' : 'Add Attachment'}
+                  </Button>
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  isLoading={noteSaving}
+                  disabled={!noteText.trim() && !noteAttachment}
+                >
+                  Add Note
+                </Button>
+              </div>
+            </form>
+
+            {/* Notes display */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 space-y-3">
+              {job.specifications?.workDetails && (
+                <div className="pb-3 border-b border-slate-200/80">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    Initial Work Details
+                  </span>
+                  <p className="whitespace-pre-wrap">{job.specifications.workDetails}</p>
+                </div>
+              )}
+
+              {(job.notes || []).length === 0 && !job.specifications?.workDetails ? (
+                <p className="text-slate-400">No notes yet for this job.</p>
+              ) : (
+                (job.notes || []).length > 0 && (
+                  <div className="space-y-3 divide-y divide-slate-200/80">
+                    {job.notes.map((n, i) => {
+                      const attUrl = mediaUrl(n.attachment?.url || n.attachmentUrl);
+                      const attName = n.attachment?.originalName || n.attachmentName || 'Attachment';
+                      const isImg = isImageFile(attName, n.attachment?.mimetype);
+                      const creatorName = n.createdBy?.firstName
+                        ? `${n.createdBy.firstName} ${n.createdBy.lastName || ''}`.trim()
+                        : '';
+
+                      return (
+                        <div key={n._id || i} className={i > 0 || job.specifications?.workDetails ? 'pt-3 space-y-1.5' : 'space-y-1.5'}>
+                          <div className="flex items-center justify-between text-[11px] text-slate-400">
+                            <span className="font-medium text-slate-600">{creatorName || 'Team Note'}</span>
+                            <span>{fmt(n.createdAt)}</span>
+                          </div>
+
+                          {n.content && <p className="text-slate-800 whitespace-pre-wrap">{n.content}</p>}
+
+                          {attUrl && (
+                            <div className="pt-1">
+                              {isImg ? (
+                                <div className="space-y-1.5">
+                                  <a
+                                    href={attUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-block border border-slate-200 rounded-lg overflow-hidden max-w-sm hover:opacity-90 transition-opacity"
+                                  >
+                                    <img
+                                      src={attUrl}
+                                      alt={attName}
+                                      className="max-h-48 rounded-lg object-contain bg-white"
+                                    />
+                                  </a>
+                                  <div className="flex items-center gap-1.5 text-[11px] text-blue-800">
+                                    <Paperclip className="w-3 h-3 text-slate-400" />
+                                    <a
+                                      href={attUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="font-medium hover:underline inline-flex items-center gap-1"
+                                    >
+                                      <span>{attName}</span>
+                                      <ExternalLink className="w-3 h-3 text-slate-400" />
+                                    </a>
+                                    {n.attachment?.size ? (
+                                      <span className="text-slate-400">({formatFileSize(n.attachment.size)})</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ) : (
+                                <a
+                                  href={attUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 hover:border-blue-300 rounded-lg text-xs font-medium text-slate-800 hover:text-blue-900 transition-colors group"
+                                >
+                                  <File className="w-4 h-4 text-slate-400 group-hover:text-blue-600 shrink-0" />
+                                  <span className="truncate max-w-xs">{attName}</span>
+                                  {n.attachment?.size ? (
+                                    <span className="text-slate-400 text-[11px]">
+                                      ({formatFileSize(n.attachment.size)})
+                                    </span>
+                                  ) : null}
+                                  <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 shrink-0 ml-1" />
+                                </a>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               )}
             </div>
           </div>

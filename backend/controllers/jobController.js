@@ -147,7 +147,8 @@ exports.getJobs = async (req, res) => {
 exports.getJobById = async (req, res) => {
   try {
     const job = await Job.findById(req.params.id)
-      .populate('customerId vehicleId invoiceId');
+      .populate('customerId vehicleId invoiceId')
+      .populate('notes.createdBy', 'firstName lastName');
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
@@ -226,7 +227,7 @@ exports.updateJob = async (req, res) => {
 exports.updateJobStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    if (!['scheduled', 'in_progress', 'completed', 'cancelled'].includes(status)) {
+    if (!['quote', 'scheduled', 'in_progress', 'completed', 'cancelled'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
@@ -239,7 +240,9 @@ exports.updateJobStatus = async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    const populated = await Job.findById(job._id).populate('customerId vehicleId');
+    const populated = await Job.findById(job._id)
+      .populate('customerId vehicleId')
+      .populate('notes.createdBy', 'firstName lastName');
     res.json(populated);
   } catch (error) {
     fail(res, error, 'Failed to update job status');
@@ -272,8 +275,10 @@ exports.completeJob = async (req, res) => {
 exports.addJobNote = async (req, res) => {
   try {
     const { content } = req.body;
-    if (!content) {
-      return res.status(400).json({ error: 'Note content required' });
+    const file = req.file;
+
+    if (!content && !file) {
+      return res.status(400).json({ error: 'Note content or attachment required' });
     }
 
     const job = await Job.findById(req.params.id);
@@ -281,14 +286,33 @@ exports.addJobNote = async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    job.notes.push({
-      createdBy: req.user.id,
-      content,
+    const noteItem = {
+      createdBy: req.user?.id,
+      content: content || '',
       createdAt: new Date()
-    });
+    };
 
+    if (file) {
+      const fileUrl = `/uploads/${file.filename}`;
+      noteItem.attachment = {
+        url: fileUrl,
+        originalName: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size
+      };
+      noteItem.attachmentUrl = fileUrl;
+      noteItem.attachmentName = file.originalname;
+    }
+
+    job.notes.push(noteItem);
+    job.updatedAt = new Date();
     await job.save();
-    res.json(job);
+
+    const populated = await Job.findById(job._id)
+      .populate('customerId vehicleId invoiceId')
+      .populate('notes.createdBy', 'firstName lastName');
+
+    res.json(populated);
   } catch (error) {
     fail(res, error, 'Failed to add note');
   }

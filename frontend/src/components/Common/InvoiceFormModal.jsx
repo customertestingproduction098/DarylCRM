@@ -6,7 +6,7 @@ import Input from './Input';
 import Button from './Button';
 import { createInvoice, updateInvoice, uploadInvoiceCopy } from '../../store/slices/invoiceSlice';
 
-const OPEN_JOB_STATUSES = ['scheduled', 'in_progress'];
+const OPEN_JOB_STATUSES = ['quote', 'scheduled', 'in_progress'];
 
 const jobStatusOf = (job) => job?.jobStatus || job?.status || 'scheduled';
 
